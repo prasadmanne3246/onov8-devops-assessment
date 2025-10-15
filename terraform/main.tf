@@ -1,38 +1,68 @@
+#############################################
+# ONOV8 DevOps Project - main.tf (Final)
+# Region: ap-south-1 (Mumbai)
+# Author: Jeevan
+#############################################
 
-###############################
-# IAM Role for ECS Task
-###############################
-resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "AmazonECSTaskExecutionRole"
+# ------------------------------
+# Networking - VPC, Subnet, Route, SG
+# ------------------------------
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "ecs-tasks.amazonaws.com"
-      }
-    }]
-  })
+resource "aws_vpc" "main_vpc" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = {
+    Name = "onov8-vpc"
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+resource "aws_subnet" "public_subnet" {
+  vpc_id                  = aws_vpc.main_vpc.id
+  cidr_block              = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "ap-south-1a"
+
+  tags = {
+    Name = "onov8-public-subnet"
+  }
 }
 
-###############################
-# Security Group for ALB
-###############################
-resource "aws_security_group" "alb_sg" {
-  name        = "onov8-alb-sg"
-  description = "Allow HTTP inbound traffic"
-  vpc_id      = var.vpc_id
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  tags = {
+    Name = "onov8-igw"
+  }
+}
+
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+
+  tags = {
+    Name = "onov8-public-rt"
+  }
+}
+
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public_subnet.id
+  route_table_id = aws_route_table.public_rt.id
+}
+
+resource "aws_security_group" "ecs_sg" {
+  vpc_id      = aws_vpc.main_vpc.id
+  name        = "onov8-ecs-sg"
+  description = "Allow incoming traffic for app"
 
   ingress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = 3000
+    to_port     = 3000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -45,70 +75,78 @@ resource "aws_security_group" "alb_sg" {
   }
 
   tags = {
-    Name = "onov8-alb-sg"
+    Name = "onov8-ecs-sg"
   }
 }
 
-###############################
-# Application Load Balancer
-###############################
-resource "aws_lb" "onov8_alb" {
-  name               = "onov8-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = var.subnet_ids
-  security_groups    = [aws_security_group.alb_sg.id]
+# ------------------------------
+# ECR Repository (for app image)
+# ------------------------------
 
-  enable_deletion_protection = false
+resource "aws_ecr_repository" "onov8_app" {
+  name                 = "onov8-app"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   tags = {
-    Name = "onov8-alb"
+    Name = "onov8-app"
   }
 }
 
-###############################
-# ECR Repository
-###############################
-resource "aws_ecr_repository" "onov8_repo" {
-  name = "onov8-app"
-}
+# ------------------------------
+# ECS Cluster, Task, Service
+# ------------------------------
 
-###############################
-# ECS Cluster
-###############################
 resource "aws_ecs_cluster" "onov8_cluster" {
   name = "onov8-cluster"
 }
 
-###############################
+# IAM Role for ECS Tasks
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "ecsTaskExecutionRole"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+      Effect = "Allow"
+    }]
+  })
+}
+
+# Attach ECS Task Execution Policy
+resource "aws_iam_role_policy_attachment" "ecs_task_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
 # ECS Task Definition
-###############################
 resource "aws_ecs_task_definition" "onov8_task" {
   family                   = "onov8-task"
-  requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([
     {
-      name      = "onov8-app"
-      image     = "${aws_ecr_repository.onov8_repo.repository_url}:latest"
+      name  = "onov8-app"
+      image = "165672952252.dkr.ecr.ap-south-1.amazonaws.com/onov8-app:latest"
       essential = true
-      portMappings = [
-        {
-          containerPort = 80
-          hostPort      = 80
-        }
-      ]
+
+      portMappings = [{
+        containerPort = 3000
+        hostPort      = 3000
+      }]
     }
   ])
 }
 
-###############################
 # ECS Service
-###############################
 resource "aws_ecs_service" "onov8_service" {
   name            = "onov8-service"
   cluster         = aws_ecs_cluster.onov8_cluster.id
@@ -117,26 +155,12 @@ resource "aws_ecs_service" "onov8_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = var.subnet_ids
+    subnets          = [aws_subnet.public_subnet.id]
+    security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
-    security_groups = [aws_security_group.alb_sg.id]
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.onov8_tg.arn
-    container_name   = "onov8-app"
-    container_port   = 80
-  }
-}
-
-###############################
-# ALB Target Group
-###############################
-resource "aws_lb_target_group" "onov8_tg" {
-  name     = "onov8-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = var.vpc_id
-
-  target_type = "ip"
+  depends_on = [
+    aws_ecs_task_definition.onov8_task
+  ]
 }

@@ -2,13 +2,14 @@ const express = require("express");
 const mongoose = require("mongoose");
 const app = express();
 
+// --- Environment Variables ---
 const PORT = process.env.PORT || 3000;
-const DB = "mongodb://127.0.0.1:27017/jeevandb";
+const DB = process.env.MONGO_URL || "mongodb://mongo:27017/jeevandb"; // ✅ ECS: "mongo" = container name
 
-// Middleware
+// --- Middleware ---
 app.use(express.json());
 
-// Connect to MongoDB
+// --- Connect to MongoDB ---
 mongoose.connect(DB, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(async () => {
     console.log("✅ MongoDB connected to jeevandb");
@@ -61,24 +62,20 @@ mongoose.connect(DB, { useNewUrlParser: true, useUnifiedTopology: true })
 
 // --- Routes ---
 
-// Root
 app.get("/", (req, res) => {
-  res.send("🚀 ONOV8 DevOps Test App running successfully!");
+  res.send("🚀 ONOV8 DevOps Test App running successfully on ECS!");
 });
 
-// Get all students
 app.get("/students", async (req, res) => {
   const students = await mongoose.connection.db.collection("students").find().toArray();
   res.json(students);
 });
 
-// Get all courses
 app.get("/courses", async (req, res) => {
   const courses = await mongoose.connection.db.collection("courses").find().toArray();
   res.json(courses);
 });
 
-// Get all enrollments (with populated names)
 app.get("/enrollments", async (req, res) => {
   const db = mongoose.connection.db;
   const enrollments = await db.collection("enrollments").find().toArray();
@@ -93,5 +90,7 @@ app.get("/enrollments", async (req, res) => {
   res.json(populated);
 });
 
-// Start server
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+// ✅ Listen on 0.0.0.0 for ECS public access
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(`✅ Server running on 0.0.0.0:${PORT} (ECS-ready)`)
+);
