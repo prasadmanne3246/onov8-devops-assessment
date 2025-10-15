@@ -44,6 +44,58 @@ This project deploys a Node.js + MongoDB application to AWS ECS using Terraform 
 
 
 
+\## 🗂️ Folder structure
+
+
+
+onov8-devops-test/
+
+│
+
+├── app/
+
+│   ├── app.js
+
+│   ├── package.json
+
+│   ├── package-lock.json
+
+│   ├── Dockerfile
+
+│   └── .dockerignore
+
+│
+
+├── terraform/
+
+│   ├── main.tf
+
+│   ├── variables.tf
+
+│   ├── outputs.tf
+
+│   └── terraform.tfvars
+
+│
+
+├── .github/
+
+│   └── workflows/
+
+│       └── deploy.yml
+
+│
+
+├── README.md
+
+└── folder-structure.txt
+
+
+
+
+
+
+
 \## 🗂️ Repo Structure
 
 
